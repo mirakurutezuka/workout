@@ -303,7 +303,7 @@ function MeasurementScreen({measurements,onSave,onDelete,onDirtyChange}){
 
       <div style={{padding:"12px 12px 8px"}}>
         {/* Input fields */}
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:12}}>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(160px, 1fr))",gap:8,marginBottom:12}}>
           {MFIELDS.map(f=>{
             const diff=getDiff(f.key);
             return(
@@ -464,7 +464,7 @@ function App(){
       :activeTab==="測定"?<MeasurementScreen measurements={measurements} onSave={handleSaveMeasurement} onDelete={handleDeleteMeasurement} onDirtyChange={handleDirtyChange}/>
       :<MenuScreen menus={menus} tab={activeTab} sessionDate={sessionDate} setSessionDate={setSessionDate} onSave={handleMenuSave} comments={comments} onSaveComment={handleSaveComment} onDirtyChange={handleDirtyChange}/>}
     <MenuPickerModal open={!!menuPickerDate} dateStr={menuPickerDate} onClose={()=>setMenuPickerDate(null)} onSelect={mn=>{setSessionDate(menuPickerDate);setActiveTab(mn);setMenuPickerDate(null)}}/>
-    <div style={{position:"fixed",bottom:0,left:0,right:0,zIndex:100,background:"#1a1a1a",borderTop:"1px solid #333",display:"flex",overflowX:"auto",WebkitOverflowScrolling:"touch",scrollbarWidth:"none",paddingBottom:"env(safe-area-inset-bottom)"}}>{allTabs.map(t=>(<button key={t} onClick={()=>{setActiveTab(t);setSelDay(null)}} style={{flex:"0 0 auto",minWidth:52,padding:"8px 6px 6px",background:"none",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:1,opacity:activeTab===t?1:0.35,transition:"opacity .15s"}}><span style={{fontSize:16}}>{t==="Home"?"📅":MENU_EMOJI[t]}</span><span style={{fontSize:9,fontWeight:activeTab===t?800:500,color:activeTab===t?"#fff":"#888",whiteSpace:"nowrap"}}>{t==="Home"?"ホーム":t}</span>{activeTab===t&&<div style={{width:14,height:2.5,borderRadius:2,background:t==="Home"?userColor:"#FFD700",marginTop:1}}/>}</button>))}</div>
+    <div style={{position:"fixed",bottom:0,left:0,right:0,zIndex:100,background:"#1a1a1a",borderTop:"1px solid #333",display:"flex",paddingBottom:"env(safe-area-inset-bottom)"}}>{allTabs.map(t=>(<button key={t} onClick={()=>{setActiveTab(t);setSelDay(null)}} style={{flex:1,minWidth:0,padding:"8px 2px 6px",background:"none",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:1,opacity:activeTab===t?1:0.35,transition:"opacity .15s",overflow:"hidden"}}><span style={{fontSize:15}}>{t==="Home"?"📅":MENU_EMOJI[t]}</span><span style={{fontSize:9,fontWeight:activeTab===t?800:500,color:activeTab===t?"#fff":"#888",whiteSpace:"nowrap"}}>{t==="Home"?"ホーム":t}</span>{activeTab===t&&<div style={{width:14,height:2.5,borderRadius:2,background:t==="Home"?userColor:"#FFD700",marginTop:1}}/>}</button>))}</div>
   </div>);
 }
 

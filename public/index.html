@@ -178,10 +178,14 @@ function HomeScreen({menus,onGoToMenu,onSelectDay,onNewSession,currentUser}){
 }
 
 /* ── Menu Screen ── */
-function MenuScreen({menus,tab,sessionDate,setSessionDate,onSave,comments,onSaveComment}){
+function MenuScreen({menus,tab,sessionDate,setSessionDate,onSave,comments,onSaveComment,onDirtyChange}){
   const[draft,setDraft]=useState(()=>DC(menus[tab]||[]));const[dirty,setDirty]=useState(false);const[picker,setPicker]=useState(null);const[showHist,setShowHist]=useState(null);const[confirm,setConfirm]=useState(null);const[calOpen,setCalOpen]=useState(false);const[saved,setSaved]=useState(false);
   const commentKey=`${sessionDate}_${tab}`;const existingComments=comments[commentKey]||[];const[cmtAuthor,setCmtAuthor]=useState("");const[cmtText,setCmtText]=useState("");
-  useEffect(()=>{setDraft(DC(menus[tab]||[]));setDirty(false);setSaved(false)},[tab,sessionDate,menus]);
+  // Only reset draft when tab or sessionDate changes, NOT when menus changes from polling
+  const prevTabRef=useRef(tab);const prevDateRef=useRef(sessionDate);
+  useEffect(()=>{if(prevTabRef.current!==tab||prevDateRef.current!==sessionDate){setDraft(DC(menus[tab]||[]));setDirty(false);setSaved(false);prevTabRef.current=tab;prevDateRef.current=sessionDate}},[tab,sessionDate,menus]);
+  // Notify parent of dirty state so polling doesn't overwrite
+  useEffect(()=>{if(onDirtyChange)onDirtyChange(dirty)},[dirty,onDirtyChange]);
   const exercises=draft;
   const updateDraft=(fn)=>{setDraft(prev=>{const next=DC(prev);fn(next);return next});setDirty(true);setSaved(false)};
   const updateEx=(i,f,v)=>updateDraft(d=>{d[i][f]=v});
@@ -227,6 +231,7 @@ function App(){
   const[selDay,setSelDay]=useState(null);const[menuPickerDate,setMenuPickerDate]=useState(null);
   const[syncing,setSyncing]=useState(false);const[toast,setToast]=useState(null);
   const dirtyRef=useRef(false); // track if user is actively editing
+  const handleDirtyChange=useCallback((isDirty)=>{dirtyRef.current=isDirty},[]);
 
   // Load users from server
   useEffect(()=>{(async()=>{const r=await api.getUsers();if(r){setUsers(r.users||DEFAULT_USERS);setCurrentUser(r.current||r.users?.[0]||DEFAULT_USERS[0])}else{setUsers([...DEFAULT_USERS]);setCurrentUser(DEFAULT_USERS[0])}})()},[]);
@@ -245,15 +250,18 @@ function App(){
         if(r.comments)setComments(r.comments);
       }
       setSyncing(false);
-    },5000);
+    },15000);
     return()=>clearInterval(iv);
   },[currentUser,menus]);
 
   const handleMenuSave=useCallback(async(tab,draftExercises)=>{
-    dirtyRef.current=true;
-    const ok=await api.saveMenuTab(currentUser,tab,DC(draftExercises));
-    if(ok){const r=await api.sync(currentUser);if(r){setMenus(r.menus);setComments(r.comments)}}
-    dirtyRef.current=false;
+    const saved=DC(draftExercises);
+    // Update local menus immediately so UI stays consistent
+    setMenus(prev=>({...prev,[tab]:saved}));
+    // Save to server
+    await api.saveMenuTab(currentUser,tab,saved);
+    // Sync comments only (menus already updated locally)
+    const r=await api.getComments(currentUser);if(r)setComments(r.comments||{});
   },[currentUser]);
 
   const handleSaveComment=useCallback(async(key,author,text)=>{
@@ -272,7 +280,7 @@ function App(){
     <UserBar users={users} currentUser={currentUser} onSwitch={switchUser} onAdd={addUser} syncing={syncing}/>
     {selDay?<SessionDetail dateStr={selDay} menus={menus} comments={comments} onBack={()=>setSelDay(null)} onGoToMenu={goToMenu}/>
       :activeTab==="Home"?<HomeScreen menus={menus} onGoToMenu={goToMenu} onSelectDay={ds=>setSelDay(ds)} onNewSession={ds=>setMenuPickerDate(ds)} currentUser={currentUser}/>
-      :<MenuScreen menus={menus} tab={activeTab} sessionDate={sessionDate} setSessionDate={setSessionDate} onSave={handleMenuSave} comments={comments} onSaveComment={handleSaveComment}/>}
+      :<MenuScreen menus={menus} tab={activeTab} sessionDate={sessionDate} setSessionDate={setSessionDate} onSave={handleMenuSave} comments={comments} onSaveComment={handleSaveComment} onDirtyChange={handleDirtyChange}/>}
     <MenuPickerModal open={!!menuPickerDate} dateStr={menuPickerDate} onClose={()=>setMenuPickerDate(null)} onSelect={mn=>{setSessionDate(menuPickerDate);setActiveTab(mn);setMenuPickerDate(null)}}/>
     <div style={{position:"fixed",bottom:0,left:0,right:0,zIndex:100,background:"#1a1a1a",borderTop:"1px solid #333",display:"flex",paddingBottom:"env(safe-area-inset-bottom)"}}>{allTabs.map(t=>(<button key={t} onClick={()=>{setActiveTab(t);setSelDay(null)}} style={{flex:1,padding:"8px 0 6px",background:"none",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:1,opacity:activeTab===t?1:0.35,transition:"opacity .15s"}}><span style={{fontSize:17}}>{t==="Home"?"📅":MENU_EMOJI[t]}</span><span style={{fontSize:10,fontWeight:activeTab===t?800:500,color:activeTab===t?"#fff":"#888"}}>{t==="Home"?"ホーム":t}</span>{activeTab===t&&<div style={{width:16,height:2.5,borderRadius:2,background:t==="Home"?userColor:"#FFD700",marginTop:1}}/>}</button>))}</div>
   </div>);

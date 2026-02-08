@@ -37,9 +37,9 @@ const api = {
   async getComments(user){ try{ const r=await fetch(`${API}/api/comments/${user}`); return r.json() }catch{ return null }},
   async addComment(user,key,author,text){ try{ const r=await fetch(`${API}/api/comments/${user}`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({key,author,text})}); return r.json() }catch{ return null }},
   async sync(user){ try{ const r=await fetch(`${API}/api/sync/${user}`); return r.json() }catch{ return null }},
-  async getMeasurements(user){ try{ const r=await fetch(`${API}/api/measurements/${user}`); return r.json() }catch{ return null }},
-  async saveMeasurement(user,data){ try{ const r=await fetch(`${API}/api/measurements/${user}`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(data)}); return r.json() }catch{ return null }},
-  async deleteMeasurement(user,date){ try{ const r=await fetch(`${API}/api/measurements/${user}/${encodeURIComponent(date)}`,{method:"DELETE"}); return r.json() }catch{ return null }},
+  async getMeasurements(user){ try{ const r=await fetch(`${API}/api/measurements/${user}`); return await r.json() }catch{ return null }},
+  async saveMeasurement(user,data){ try{ const r=await fetch(`${API}/api/measurements/${user}`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(data)}); return await r.json() }catch{ return null }},
+  async deleteMeasurement(user,date){ try{ const r=await fetch(`${API}/api/measurements/${user}/${encodeURIComponent(date)}`,{method:"DELETE"}); return await r.json() }catch{ return null }},
 };
 
 /* ── Constants ── */
@@ -236,27 +236,45 @@ const MFIELDS=[
   {key:"thigh",label:"大腿",unit:"cm",color:"#8A60C0",icon:"🦵"},
   {key:"hip",label:"ヒップ",unit:"cm",color:"#4FA06A",icon:"📐"},
 ];
-function MeasurementScreen({measurements,onSave,onDelete}){
+function MeasurementScreen({measurements,onSave,onDelete,onDirtyChange}){
   const today=new Date();const todayISO=`${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,"0")}-${String(today.getDate()).padStart(2,"0")}`;
   const[date,setDate]=useState(todayISO);
   const[form,setForm]=useState({weight:"",waist:"",chest:"",arm:"",thigh:"",hip:"",memo:""});
   const[saving,setSaving]=useState(false);
   const[showHistory,setShowHistory]=useState(true);
   const[confirm,setConfirm]=useState(null);
+  const[formDirty,setFormDirty]=useState(false);
+  useEffect(()=>{if(onDirtyChange)onDirtyChange(formDirty)},[formDirty,onDirtyChange]);
 
-  // Load existing data for selected date
+  // Only reset form when date changes (not when measurements updates from polling)
+  const prevDateRef=useRef(date);
   useEffect(()=>{
-    const existing=measurements.find(m=>m.date===date);
-    if(existing){setForm({weight:existing.weight||"",waist:existing.waist||"",chest:existing.chest||"",arm:existing.arm||"",thigh:existing.thigh||"",hip:existing.hip||"",memo:existing.memo||""})}
-    else{setForm({weight:"",waist:"",chest:"",arm:"",thigh:"",hip:"",memo:""})}
-  },[date,measurements]);
+    if(prevDateRef.current!==date||!formDirty){
+      const existing=measurements.find(m=>m.date===date);
+      if(existing){setForm({weight:existing.weight||"",waist:existing.waist||"",chest:existing.chest||"",arm:existing.arm||"",thigh:existing.thigh||"",hip:existing.hip||"",memo:existing.memo||""})}
+      else{setForm({weight:"",waist:"",chest:"",arm:"",thigh:"",hip:"",memo:""})}
+      setFormDirty(false);
+      prevDateRef.current=date;
+    }
+  },[date]);
+
+  // When date changes via history row click, load that date's data
+  const selectDate=(d)=>{setFormDirty(false);prevDateRef.current="";setDate(d)};
+
+  const updateField=(key,val)=>{setForm(p=>({...p,[key]:val}));setFormDirty(true)};
 
   const handleSave=async()=>{
     setSaving(true);
-    await onSave({date,...form});
+    try{await onSave({date,...form})}catch(e){console.error("Save error:",e)}
+    setFormDirty(false);
     setSaving(false);
   };
-  const handleDelete=async(d)=>{await onDelete(d);setConfirm(null)};
+  const handleDelete=async(d)=>{
+    await onDelete(d);
+    setConfirm(null);
+    // If deleted the currently selected date, clear form
+    if(d===date){setForm({weight:"",waist:"",chest:"",arm:"",thigh:"",hip:"",memo:""});setFormDirty(false)}
+  };
   const hasInput=Object.values(form).some(v=>v!=="");
 
   // Get previous measurement for comparison
@@ -279,7 +297,7 @@ function MeasurementScreen({measurements,onSave,onDelete}){
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
           <div style={{fontSize:20,fontWeight:900}}>📏 身体測定ログ</div>
         </div>
-        <input type="date" value={date} onChange={e=>setDate(e.target.value)}
+        <input type="date" value={date} onChange={e=>selectDate(e.target.value)}
           style={{width:"100%",padding:"10px 14px",background:"#2a2a2a",border:"1px solid #444",borderRadius:10,color:"#fff",fontSize:15,outline:"none",colorScheme:"dark"}}/>
       </div>
 
@@ -296,7 +314,7 @@ function MeasurementScreen({measurements,onSave,onDelete}){
                   {diff!==null&&<span style={{marginLeft:"auto",fontSize:11,fontWeight:700,color:f.key==="weight"?(diff<0?"#44BB66":diff>0?"#E85555":"#888"):(diff>0?"#44BB66":diff<0?"#E85555":"#888")}}>{diff>0?"+":""}{diff.toFixed(1)}</span>}
                 </div>
                 <div style={{display:"flex",alignItems:"center",gap:4}}>
-                  <input value={form[f.key]} onChange={e=>setForm(p=>({...p,[f.key]:e.target.value}))}
+                  <input value={form[f.key]} onChange={e=>updateField(f.key,e.target.value)}
                     inputMode="decimal" placeholder="—"
                     style={{flex:1,padding:"8px 10px",background:"#222",border:"1px solid #333",borderRadius:8,color:"#fff",fontSize:18,fontWeight:700,outline:"none",textAlign:"center"}}/>
                   <span style={{fontSize:12,color:"#666",minWidth:24}}>{f.unit}</span>
@@ -312,7 +330,7 @@ function MeasurementScreen({measurements,onSave,onDelete}){
             <span style={{fontSize:14}}>📝</span>
             <span style={{fontSize:12,fontWeight:700,color:"#aaa"}}>メモ</span>
           </div>
-          <textarea value={form.memo} onChange={e=>setForm(p=>({...p,memo:e.target.value}))}
+          <textarea value={form.memo} onChange={e=>updateField("memo",e.target.value)}
             placeholder="体調、食事内容、気づきなど…" rows={2}
             style={{width:"100%",padding:"8px 10px",background:"#222",border:"1px solid #333",borderRadius:8,color:"#fff",fontSize:14,outline:"none",lineHeight:1.5,boxSizing:"border-box"}}/>
         </div>
@@ -337,18 +355,19 @@ function MeasurementScreen({measurements,onSave,onDelete}){
         {showHistory&&measurements.length>0&&(
           <div>
             {/* Header */}
-            <div style={{display:"grid",gridTemplateColumns:"70px repeat(6,1fr)",gap:2,marginBottom:4,padding:"0 4px"}}>
+            <div style={{display:"grid",gridTemplateColumns:"70px repeat(6,1fr) 32px",gap:2,marginBottom:4,padding:"0 4px"}}>
               <span style={{fontSize:10,color:"#666",fontWeight:700}}>日付</span>
               {MFIELDS.map(f=><span key={f.key} style={{fontSize:10,color:f.color,fontWeight:700,textAlign:"center"}}>{f.label}</span>)}
+              <span/>
             </div>
             {/* Rows */}
             {measurements.map((m,i)=>{
               const isSelected=m.date===date;
               return(
-                <div key={m.date} onClick={()=>setDate(m.date)}
-                  style={{display:"grid",gridTemplateColumns:"70px repeat(6,1fr)",gap:2,padding:"8px 4px",background:isSelected?"#FFD70015":"transparent",borderRadius:8,borderBottom:"1px solid #1a1a1a",cursor:"pointer",alignItems:"center"}}>
-                  <span style={{fontSize:12,fontWeight:isSelected?800:500,color:isSelected?"#FFD700":"#aaa"}}>{m.date.slice(5)}</span>
-                  {MFIELDS.map(f=><span key={f.key} style={{fontSize:13,fontWeight:600,color:m[f.key]?"#ddd":"#333",textAlign:"center"}}>{m[f.key]||"—"}</span>)}
+                <div key={m.date} style={{display:"grid",gridTemplateColumns:"70px repeat(6,1fr) 32px",gap:2,padding:"8px 4px",background:isSelected?"#FFD70015":"transparent",borderRadius:8,borderBottom:"1px solid #1a1a1a",alignItems:"center"}}>
+                  <span onClick={()=>selectDate(m.date)} style={{fontSize:12,fontWeight:isSelected?800:500,color:isSelected?"#FFD700":"#aaa",cursor:"pointer"}}>{m.date.slice(5)}</span>
+                  {MFIELDS.map(f=><span key={f.key} onClick={()=>selectDate(m.date)} style={{fontSize:13,fontWeight:600,color:m[f.key]?"#ddd":"#333",textAlign:"center",cursor:"pointer"}}>{m[f.key]||"—"}</span>)}
+                  <button onClick={(e)=>{e.stopPropagation();setConfirm(m.date)}} style={{width:28,height:28,borderRadius:8,background:"#2a2a2a",border:"1px solid #333",color:"#884444",fontSize:12,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",padding:0}}>🗑</button>
                 </div>
               );
             })}
@@ -359,7 +378,7 @@ function MeasurementScreen({measurements,onSave,onDelete}){
         )}
         <div style={{height:70}}/>
       </div>
-      <ConfirmDialog open={confirm!==null} message={`${confirm}の測定データを削除しますか？`} onConfirm={()=>handleDelete(confirm)} onCancel={()=>setConfirm(null)}/>
+      <ConfirmDialog open={confirm!==null} message={`${confirm} の測定データを削除しますか？`} onConfirm={()=>handleDelete(confirm)} onCancel={()=>setConfirm(null)}/>
     </div>
   );
 }
@@ -411,12 +430,16 @@ function App(){
   },[currentUser]);
 
   const handleSaveMeasurement=useCallback(async(data)=>{
-    const r=await api.saveMeasurement(currentUser,data);
-    if(r?.measurements)setMeasurements(r.measurements);
+    try{
+      const r=await api.saveMeasurement(currentUser,data);
+      if(r?.measurements)setMeasurements(r.measurements);
+    }catch(e){console.error("Measurement save error:",e)}
   },[currentUser]);
   const handleDeleteMeasurement=useCallback(async(date)=>{
-    const r=await api.deleteMeasurement(currentUser,date);
-    if(r?.measurements)setMeasurements(r.measurements);
+    try{
+      const r=await api.deleteMeasurement(currentUser,date);
+      if(r?.measurements)setMeasurements(r.measurements);
+    }catch(e){console.error("Measurement delete error:",e)}
   },[currentUser]);
 
   const switchUser=(u)=>{setCurrentUser(u);setActiveTab("Home");setSelDay(null)};
@@ -430,7 +453,7 @@ function App(){
     <UserBar users={users} currentUser={currentUser} onSwitch={switchUser} onAdd={addUser} syncing={syncing}/>
     {selDay?<SessionDetail dateStr={selDay} menus={menus} comments={comments} onBack={()=>setSelDay(null)} onGoToMenu={goToMenu}/>
       :activeTab==="Home"?<HomeScreen menus={menus} onGoToMenu={goToMenu} onSelectDay={ds=>setSelDay(ds)} onNewSession={ds=>setMenuPickerDate(ds)} currentUser={currentUser}/>
-      :activeTab==="測定"?<MeasurementScreen measurements={measurements} onSave={handleSaveMeasurement} onDelete={handleDeleteMeasurement}/>
+      :activeTab==="測定"?<MeasurementScreen measurements={measurements} onSave={handleSaveMeasurement} onDelete={handleDeleteMeasurement} onDirtyChange={handleDirtyChange}/>
       :<MenuScreen menus={menus} tab={activeTab} sessionDate={sessionDate} setSessionDate={setSessionDate} onSave={handleMenuSave} comments={comments} onSaveComment={handleSaveComment} onDirtyChange={handleDirtyChange}/>}
     <MenuPickerModal open={!!menuPickerDate} dateStr={menuPickerDate} onClose={()=>setMenuPickerDate(null)} onSelect={mn=>{setSessionDate(menuPickerDate);setActiveTab(mn);setMenuPickerDate(null)}}/>
     <div style={{position:"fixed",bottom:0,left:0,right:0,zIndex:100,background:"#1a1a1a",borderTop:"1px solid #333",display:"flex",paddingBottom:"env(safe-area-inset-bottom)"}}>{allTabs.map(t=>(<button key={t} onClick={()=>{setActiveTab(t);setSelDay(null)}} style={{flex:1,padding:"8px 0 6px",background:"none",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:1,opacity:activeTab===t?1:0.35,transition:"opacity .15s"}}><span style={{fontSize:17}}>{t==="Home"?"📅":MENU_EMOJI[t]}</span><span style={{fontSize:10,fontWeight:activeTab===t?800:500,color:activeTab===t?"#fff":"#888"}}>{t==="Home"?"ホーム":t}</span>{activeTab===t&&<div style={{width:16,height:2.5,borderRadius:2,background:t==="Home"?userColor:"#FFD700",marginTop:1}}/>}</button>))}</div>

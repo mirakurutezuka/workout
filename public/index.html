@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#111111">
+<title>ワークアウトトラッカー</title>
+<link rel="manifest" href="./manifest.json">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;600;700;900&display=swap" rel="stylesheet">
+<style>
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  body{background:#111;overflow-x:hidden;font-family:'Noto Sans JP',-apple-system,sans-serif}
+  input,textarea,button{font-family:inherit}
+  ::-webkit-scrollbar{display:none}
+  textarea{resize:vertical}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+</style>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const{useState,useEffect,useMemo,useCallback,useRef}=React;
+
+/* ── Server API ── */
+const API = window.location.origin;
+const api = {
+  async getUsers(){ try{ const r=await fetch(`${API}/api/users`); return r.json() }catch{ return null }},
+  async addUser(name){ try{ const r=await fetch(`${API}/api/users`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({name})}); return r.json() }catch{ return null }},
+  async getMenus(user){ try{ const r=await fetch(`${API}/api/menus/${user}`); return r.json() }catch{ return null }},
+  async saveMenus(user,menus){ try{ await fetch(`${API}/api/menus/${user}`,{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({menus})}); return true }catch{ return false }},
+  async saveMenuTab(user,tab,exercises){ try{ await fetch(`${API}/api/menus/${user}/${tab}`,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({exercises})}); return true }catch{ return false }},
+  async getComments(user){ try{ const r=await fetch(`${API}/api/comments/${user}`); return r.json() }catch{ return null }},
+  async addComment(user,key,author,text){ try{ const r=await fetch(`${API}/api/comments/${user}`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({key,author,text})}); return r.json() }catch{ return null }},
+  async sync(user){ try{ const r=await fetch(`${API}/api/sync/${user}`); return r.json() }catch{ return null }},
+};
+
+/* ── Constants ── */
+const BODY_PARTS=["胸","背中","肩","腕","脚"];
+const BODY_COLORS={
+  胸:{bg:"#F9E8E8",text:"#A04040",accent:"#D46A6A",border:"#E8C0C0",dot:"#E85555"},
+  背中:{bg:"#E4EAF4",text:"#3A5080",accent:"#5B7DB8",border:"#C0CCE0",dot:"#5588DD"},
+  肩:{bg:"#E4F2E8",text:"#2E6E3E",accent:"#4FA06A",border:"#B8D8C4",dot:"#44BB66"},
+  腕:{bg:"#F4EEE4",text:"#7A5C30",accent:"#B8903C",border:"#DDD0B8",dot:"#DDAA33"},
+  脚:{bg:"#ECE4F4",text:"#5A3A80",accent:"#8A60C0",border:"#D0C0E0",dot:"#9966DD"},
+};
+const EXERCISES={
+  胸:["ベンチプレス","インクラインベンチプレス","デクラインベンチプレス","クローズグリップベンチプレス","フロアプレス","スミスマシンベンチプレス","スミスマシンインクラインプレス","ダンベルベンチプレス","インクラインDBプレス","ハイインクラインDBプレス","デクラインDBプレス","ダンベルフライ","インクラインDBフライ","デクラインDBフライ","ダンベルプルオーバー","チェストプレス","インクライン・チェストプレス","マシンチェストプレス","ペックフライ（マシン）","ペックデック","ケーブルクロスオーバー","ケーブルフライ","ディップス","プッシュアップ","ワイドプッシュアップ","ダイヤモンドプッシュアップ"],
+  背中:["ベントオーバーロー","ペンドレイロー","Tバーロー","デッドリフト","ラックプル","ダンベルロー（ワンハンド）","インクラインDBロー","ダンベルプルオーバー","マシンロー","シーテッドロー","ロープーリーロー","ラットプルダウン（ワイド）","ラットプルダウン（ナロー）","ラットプルダウン（リバース）","ストレートアームプルダウン","ケーブルロー","フェイスプル","チンニング（懸垂）","ワイドチンニング","ナローチンニング","インバーテッドロー","上背部狙いのロー","バンドプルアパート"],
+  肩:["バーベルショルダープレス","ダンベルショルダープレス","アーノルドプレス","スミスマシンショルダープレス","マシンショルダープレス","ショルダープレス（手幅狭め）","DBサイドレイズ","ケーブルサイドレイズ","マシンサイドレイズ","インクラインサイドレイズ","アップライトロー","ケーブルアップライトロー","フロントレイズ（DB）","フロントレイズ（プレート）","ケーブルフロントレイズ","ケーブルリアレイズ","マシンリアレイズ","リアデルトフライ（DB）","インクラインリアレイズ","フェイスプル","リバースペックデック","バーベルシュラッグ","ダンベルシュラッグ"],
+  腕:["ケーブルプレスダウン","ケーブルプレスダウン（ロープ）","ケーブルオーバーヘッドEXT","EZバーオーバーヘッドEXT","ダンベルオーバーヘッドEXT","スカルクラッシャー","ライイングトライセプスEXT","キックバック（DB）","ディップス（三頭筋）","ベンチディップス","ナローベンチプレス","マシントライセプスEXT","バーベルカール","EZバーカール","ダンベルカール","インクラインDBカール","コンセントレーションカール","ハンマーカール","プリーチャーカール（EZ）","プリーチャーカール（DB）","マシンプリーチャーカール","ケーブルカール","ケーブルハンマーカール","リバースカール","スパイダーカール","ドラッグカール","ゾットマンカール","リストカール","リバースリストカール"],
+  脚:["バーベルスクワット","フロントスクワット","ゴブレットスクワット","スミスマシンスクワット","ハックスクワット","Vスクワット","ブルガリアンスクワット","スプリットスクワット","ランジ（前方）","ウォーキングランジ","リバースランジ","サイドランジ","ステップアップ","レッグプレス","レッグプレス（ナロー）","レッグプレス（ワイド）","シングルレッグプレス","レッグエクステンション","レッグカール（ライイング）","レッグカール（シーテッド）","デッドリフト","ルーマニアンデッドリフト","ダンベルルーマニアンデッド","スティフレッグデッドリフト","シングルレッグRDL","ヒップスラスト","バーベルヒップスラスト","ダンベルヒップスラスト","グルートブリッジ","アダクター（マシン）","アブダクター（マシン）","スタンディングカーフレイズ","シーテッドカーフレイズ","ダンベルカーフレイズ"],
+};
+const DEFAULT_MENUS={
+  Push:[{body:"胸",name:"インクライン・チェストプレス",alt:"",sets:1,repRange:"5～7",records:[]},{body:"胸",name:"ディップス",alt:"ワイドプッシュアップ",sets:2,repRange:"5～7",records:[]},{body:"肩",name:"ショルダープレス（手幅狭め）",alt:"ダンベルショルダープレス",sets:2,repRange:"5～7",records:[]},{body:"胸",name:"マシンチェストプレス",alt:"ダンベルベンチプレス",sets:2,repRange:"7～9",records:[]},{body:"胸",name:"ペックフライ（マシン）",alt:"ダンベルフライ",sets:2,repRange:"9～11",records:[]},{body:"腕",name:"ケーブルオーバーヘッドEXT",alt:"ダンベルオーバーヘッドEXT",sets:2,repRange:"7～9",records:[]},{body:"腕",name:"ケーブルプレスダウン",alt:"ベンチディップス",sets:2,repRange:"5～7",records:[]}],
+  Pull:[{body:"背中",name:"ベントオーバーロー",alt:"",sets:1,repRange:"5～7",records:[]},{body:"背中",name:"ラットプルダウン（ナロー）",alt:"ナローチンニング",sets:2,repRange:"7～9",records:[]},{body:"背中",name:"マシンロー",alt:"ダンベルロー（ワンハンド）",sets:2,repRange:"7～9",records:[]},{body:"背中",name:"上背部狙いのロー",alt:"インクラインDBロー",sets:2,repRange:"8～10",records:[]},{body:"肩",name:"ケーブルリアレイズ",alt:"リアデルトフライ（DB）",sets:2,repRange:"9～11",records:[]},{body:"腕",name:"プリーチャーカール（EZ）",alt:"ダンベルカール",sets:2,repRange:"8～10",records:[]},{body:"腕",name:"ハンマーカール",alt:"",sets:1,repRange:"9～11",records:[]}],
+  Leg:[{body:"脚",name:"ハックスクワット",alt:"ゴブレットスクワット",sets:1,repRange:"5～7",records:[]},{body:"脚",name:"レッグプレス",alt:"ブルガリアンスクワット",sets:2,repRange:"6～8",records:[]},{body:"脚",name:"レッグエクステンション",alt:"",sets:2,repRange:"7～9",records:[]},{body:"脚",name:"レッグカール（ライイング）",alt:"",sets:1,repRange:"7～9",records:[]},{body:"脚",name:"アダクター（マシン）",alt:"",sets:2,repRange:"9～11",records:[]},{body:"肩",name:"ケーブルサイドレイズ",alt:"DBサイドレイズ",sets:2,repRange:"9～11",records:[]}],
+  Upper:[{body:"肩",name:"スミスマシンショルダープレス",alt:"ダンベルショルダープレス",sets:2,repRange:"5～7",records:[]},{body:"胸",name:"ハイインクラインDBプレス",alt:"",sets:1,repRange:"5～7",records:[]},{body:"背中",name:"ラットプルダウン（ワイド）",alt:"ワイドチンニング",sets:2,repRange:"7～9",records:[]},{body:"胸",name:"ケーブルクロスオーバー",alt:"ダンベルフライ",sets:2,repRange:"9～11",records:[]},{body:"肩",name:"ケーブルリアレイズ",alt:"リアデルトフライ（DB）",sets:2,repRange:"9～11",records:[]},{body:"腕",name:"ケーブルオーバーヘッドEXT",alt:"ダンベルオーバーヘッドEXT",sets:2,repRange:"7～9",records:[]},{body:"腕",name:"ケーブルカール",alt:"ダンベルカール",sets:2,repRange:"8～10",records:[]}],
+  Lower:[{body:"脚",name:"ルーマニアンデッドリフト",alt:"ダンベルルーマニアンデッド",sets:1,repRange:"5～7",records:[]},{body:"脚",name:"ブルガリアンスクワット",alt:"",sets:2,repRange:"6～8",records:[]},{body:"脚",name:"レッグカール（ライイング）",alt:"",sets:2,repRange:"7～9",records:[]},{body:"脚",name:"レッグエクステンション",alt:"",sets:1,repRange:"7～9",records:[]},{body:"脚",name:"アブダクター（マシン）",alt:"",sets:2,repRange:"9～11",records:[]},{body:"肩",name:"ケーブルサイドレイズ",alt:"DBサイドレイズ",sets:2,repRange:"9～11",records:[]},{body:"脚",name:"ダンベルカーフレイズ",alt:"",sets:2,repRange:"15～20",records:[]}],
+};
+const MENU_TABS=["Push","Pull","Leg","Upper","Lower"];
+const MENU_EMOJI={Push:"🫸",Pull:"🫳",Leg:"🦵",Upper:"💪",Lower:"🏋️"};
+const WEEKDAYS=["日","月","火","水","木","金","土"];
+const todayStr=()=>{const d=new Date();return`${d.getMonth()+1}/${d.getDate()}`};
+const DEFAULT_USERS=["WAKASA","TEZUKA"];
+const USER_COLORS=["#E85555","#5588DD","#44BB66","#DDAA33","#9966DD","#DD6699","#55BBCC","#CC8844"];
+const DC=o=>JSON.parse(JSON.stringify(o));
+
+function getMonthDays(y,m){const st=new Date(y,m,1).getDay();const last=new Date(y,m+1,0).getDate();const c=[];for(let i=0;i<st;i++)c.push(null);for(let d=1;d<=last;d++)c.push(d);return c}
+function buildTrainingMap(menus,y,m){const map={};const tm=m+1;for(const[mn,exs]of Object.entries(menus))for(const ex of exs){if(!ex.records)continue;for(const rec of ex.records){const p=rec.date.split("/").map(Number);if(p.length!==2||p[0]!==tm)continue;if(!rec.sets?.some(s=>(parseFloat(s.kg)||0)>0))continue;if(!map[rec.date])map[rec.date]={bodies:new Set(),menus:new Set()};map[rec.date].bodies.add(ex.body);map[rec.date].menus.add(mn)}}return map}
+function getDateVol(menus,ds){let t=0;for(const exs of Object.values(menus))for(const ex of exs){const r=ex.records?.find(r=>r.date===ds);if(r)for(const s of r.sets)t+=(parseFloat(s.kg)||0)*(parseFloat(s.reps)||0)}return t}
+
+/* ── Sync Indicator ── */
+function SyncDot({syncing}){
+  return <span style={{width:8,height:8,borderRadius:"50%",background:syncing?"#DDAA33":"#44BB66",display:"inline-block",marginLeft:6,animation:syncing?"pulse 1s infinite":"none"}} title={syncing?"同期中…":"サーバー接続中"}/>;
+}
+
+/* ── Exercise Picker ── */
+function ExercisePicker({open,onClose,onSelect,currentBody}){
+  const[search,setSearch]=useState("");const[exp,setExp]=useState(currentBody||null);
+  useEffect(()=>{if(open){setSearch("");setExp(currentBody||null)}},[open,currentBody]);
+  if(!open)return null;
+  const filtered=search.trim()?BODY_PARTS.reduce((a,bp)=>{const e=EXERCISES[bp].filter(x=>x.includes(search.trim()));if(e.length)a.push({bp,exs:e});return a},[]):null;
+  return(<div style={{position:"fixed",inset:0,zIndex:1000,display:"flex",flexDirection:"column"}}>
+    <div onClick={onClose} style={{position:"absolute",inset:0,background:"rgba(0,0,0,.5)",backdropFilter:"blur(4px)"}}/>
+    <div style={{position:"relative",marginTop:"auto",maxHeight:"85vh",background:"#1a1a1a",borderRadius:"20px 20px 0 0",display:"flex",flexDirection:"column",overflow:"hidden"}}>
+      <div style={{padding:"16px 20px 12px",borderBottom:"1px solid #333"}}>
+        <div style={{width:40,height:4,background:"#555",borderRadius:2,margin:"0 auto 14px"}}/>
+        <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="種目を検索…" autoFocus style={{width:"100%",padding:"12px 16px",background:"#2a2a2a",border:"1px solid #444",borderRadius:12,color:"#fff",fontSize:16,outline:"none",boxSizing:"border-box"}}/></div>
+      <div style={{overflow:"auto",flex:1,padding:"8px 0 env(safe-area-inset-bottom)"}}>
+        {filtered?(filtered.length===0?<div style={{padding:32,textAlign:"center",color:"#888"}}>該当なし</div>:filtered.map(({bp,exs})=>(<div key={bp}><div style={{padding:"10px 20px 6px",fontSize:12,fontWeight:700,color:BODY_COLORS[bp].accent,letterSpacing:1}}>{bp}</div>{exs.map(ex=><button key={ex} onClick={()=>{onSelect(bp,ex);onClose()}} style={{display:"block",width:"100%",padding:"14px 24px",background:"none",border:"none",color:"#ddd",fontSize:15,textAlign:"left",cursor:"pointer"}}>{ex}</button>)}</div>))):BODY_PARTS.map(bp=>(<div key={bp}>
+          <button onClick={()=>setExp(exp===bp?null:bp)} style={{display:"flex",alignItems:"center",justifyContent:"space-between",width:"100%",padding:"14px 20px",background:exp===bp?"#2a2a2a":"none",border:"none",borderBottom:"1px solid #2a2a2a",cursor:"pointer"}}><span style={{display:"flex",alignItems:"center",gap:10}}><span style={{width:10,height:10,borderRadius:"50%",background:BODY_COLORS[bp].accent}}/><span style={{color:"#eee",fontSize:16,fontWeight:600}}>{bp}</span><span style={{color:"#666",fontSize:13}}>{EXERCISES[bp].length}</span></span><span style={{color:"#666",fontSize:18,transform:exp===bp?"rotate(90deg)":"none",transition:"transform .2s"}}>›</span></button>
+          {exp===bp&&<div style={{background:"#222"}}>{EXERCISES[bp].map(ex=><button key={ex} onClick={()=>{onSelect(bp,ex);onClose()}} style={{display:"block",width:"100%",padding:"13px 24px 13px 44px",background:"none",border:"none",borderBottom:"1px solid #2a2a2a",color:"#ccc",fontSize:15,textAlign:"left",cursor:"pointer"}}>{ex}</button>)}</div>}</div>))}</div></div></div>);
+}
+
+function ConfirmDialog({open,message,onConfirm,onCancel,confirmLabel="削除",confirmColor="#D44"}){
+  if(!open)return null;
+  return(<div style={{position:"fixed",inset:0,zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center"}}><div onClick={onCancel} style={{position:"absolute",inset:0,background:"rgba(0,0,0,.6)"}}/><div style={{position:"relative",background:"#222",borderRadius:16,padding:"24px 20px 16px",width:"min(320px,85vw)",textAlign:"center"}}><div style={{fontSize:15,color:"#ddd",marginBottom:20,lineHeight:1.6,whiteSpace:"pre-line"}}>{message}</div><div style={{display:"flex",gap:10}}><button onClick={onCancel} style={{flex:1,padding:"12px",background:"#333",border:"none",borderRadius:10,color:"#aaa",fontSize:15,fontWeight:600,cursor:"pointer"}}>キャンセル</button><button onClick={onConfirm} style={{flex:1,padding:"12px",background:confirmColor,border:"none",borderRadius:10,color:"#fff",fontSize:15,fontWeight:600,cursor:"pointer"}}>{confirmLabel}</button></div></div></div>);
+}
+
+function CalendarPicker({open,onClose,onSelect,currentDate}){
+  const parsed=currentDate?.split("/").map(Number)||[];const now=new Date();
+  const[vY,setVY]=useState(now.getFullYear());const[vM,setVM]=useState(parsed.length===2?parsed[0]-1:now.getMonth());
+  useEffect(()=>{if(open){const p=currentDate?.split("/").map(Number);setVM(p?.length===2?p[0]-1:now.getMonth());setVY(now.getFullYear())}},[open]);
+  if(!open)return null;
+  const cells=getMonthDays(vY,vM);const todayDay=now.getFullYear()===vY&&now.getMonth()===vM?now.getDate():null;const selDay=parsed.length===2&&parsed[0]-1===vM?parsed[1]:null;
+  const prev=()=>{if(vM===0){setVY(vY-1);setVM(11)}else setVM(vM-1)};const next=()=>{if(vM===11){setVY(vY+1);setVM(0)}else setVM(vM+1)};
+  return(<div style={{position:"fixed",inset:0,zIndex:1000,display:"flex",flexDirection:"column"}}><div onClick={onClose} style={{position:"absolute",inset:0,background:"rgba(0,0,0,.5)",backdropFilter:"blur(4px)"}}/><div style={{position:"relative",marginTop:"auto",background:"#1a1a1a",borderRadius:"20px 20px 0 0",overflow:"hidden",padding:"16px 12px 20px"}}><div style={{width:40,height:4,background:"#555",borderRadius:2,margin:"0 auto 14px"}}/><div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}><button onClick={prev} style={{background:"#2a2a2a",border:"1px solid #333",borderRadius:8,color:"#aaa",fontSize:16,cursor:"pointer",padding:"4px 12px"}}>‹</button><span style={{fontSize:16,fontWeight:800,color:"#eee"}}>{vY}年 {vM+1}月</span><button onClick={next} style={{background:"#2a2a2a",border:"1px solid #333",borderRadius:8,color:"#aaa",fontSize:16,cursor:"pointer",padding:"4px 12px"}}>›</button></div><div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)"}}>{WEEKDAYS.map((wd,i)=><div key={wd} style={{padding:"8px 0",textAlign:"center",fontSize:12,fontWeight:700,color:i===0?"#D46A6A":i===6?"#5B7DB8":"#666"}}>{wd}</div>)}</div><div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:2}}>{cells.map((day,i)=>{if(day===null)return<div key={`e${i}`}/>;const isToday=day===todayDay;const isSel=day===selDay;const dow=i%7;return(<button key={i} onClick={()=>{onSelect(`${vM+1}/${day}`);onClose()}} style={{padding:"10px 0",background:isSel?"#FFD700":isToday?"#333":"none",border:"none",borderRadius:10,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}><span style={{fontSize:14,fontWeight:isSel||isToday?800:400,color:isSel?"#111":isToday?"#FFD700":dow===0?"#D46A6A":dow===6?"#5B7DB8":"#ccc"}}>{day}</span></button>)})}</div></div></div>);
+}
+
+function MenuPickerModal({open,onClose,onSelect,dateStr}){
+  if(!open)return null;
+  return(<div style={{position:"fixed",inset:0,zIndex:1000,display:"flex",flexDirection:"column"}}><div onClick={onClose} style={{position:"absolute",inset:0,background:"rgba(0,0,0,.5)",backdropFilter:"blur(4px)"}}/><div style={{position:"relative",marginTop:"auto",background:"#1a1a1a",borderRadius:"20px 20px 0 0",padding:"20px 16px 28px"}}><div style={{width:40,height:4,background:"#555",borderRadius:2,margin:"0 auto 16px"}}/><div style={{fontSize:16,fontWeight:800,color:"#eee",textAlign:"center",marginBottom:16}}>📅 {dateStr} のトレーニング</div><div style={{fontSize:13,color:"#888",textAlign:"center",marginBottom:16}}>メニューを選択してください</div><div style={{display:"flex",flexDirection:"column",gap:8}}>{MENU_TABS.map(t=>(<button key={t} onClick={()=>{onSelect(t);onClose()}} style={{display:"flex",alignItems:"center",gap:12,padding:"14px 18px",background:"#222",border:"1px solid #333",borderRadius:14,cursor:"pointer"}}><span style={{fontSize:24}}>{MENU_EMOJI[t]}</span><span style={{fontSize:16,fontWeight:700,color:"#ddd"}}>{t}</span></button>))}</div></div></div>);
+}
+
+function NumInput({value,onChange,unit,step=2.5,color="#aaa"}){const v=value||"";return(<div style={{display:"flex",alignItems:"center",gap:2}}><button onClick={()=>onChange(Math.max(0,(parseFloat(v)||0)-step))} style={{width:30,height:36,borderRadius:"8px 0 0 8px",border:"1px solid #333",background:"#2a2a2a",color:"#888",fontSize:18,cursor:"pointer",lineHeight:1}}>−</button><input value={v} onChange={e=>{const n=e.target.value;onChange(n===""?"":parseFloat(n)||0)}} inputMode="decimal" placeholder="—" style={{width:52,height:36,textAlign:"center",background:"#222",border:"1px solid #333",borderLeft:"none",borderRight:"none",color,fontSize:15,fontWeight:600,outline:"none"}}/><button onClick={()=>onChange((parseFloat(v)||0)+step)} style={{width:30,height:36,borderRadius:"0 8px 8px 0",border:"1px solid #333",background:"#2a2a2a",color:"#888",fontSize:18,cursor:"pointer",lineHeight:1}}>+</button><span style={{fontSize:11,color:"#666",marginLeft:2,minWidth:20}}>{unit}</span></div>)}
+
+function UserBar({users,currentUser,onSwitch,onAdd,syncing}){
+  const[adding,setAdding]=useState(false);const[newName,setNewName]=useState("");
+  const handleAdd=()=>{const n=newName.trim().toUpperCase();if(n&&!users.includes(n)){onAdd(n);setNewName("");setAdding(false)}};
+  return(<div style={{padding:"10px 12px 6px",background:"#111",borderBottom:"1px solid #222"}}><div style={{display:"flex",alignItems:"center",gap:6,overflowX:"auto",WebkitOverflowScrolling:"touch",scrollbarWidth:"none"}}>
+    {users.map((u,i)=>{const active=u===currentUser;const color=USER_COLORS[i%USER_COLORS.length];return(<button key={u} onClick={()=>onSwitch(u)} style={{display:"flex",alignItems:"center",gap:6,padding:"7px 14px",background:active?`${color}20`:"#1a1a1a",border:active?`2px solid ${color}`:"1px solid #333",borderRadius:20,cursor:"pointer",flexShrink:0,transition:"all .15s"}}><span style={{width:22,height:22,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",background:active?color:"#333",color:active?"#fff":"#888",fontSize:11,fontWeight:800}}>{u[0]}</span><span style={{fontSize:13,fontWeight:active?800:500,color:active?"#eee":"#888"}}>{u}</span>{active&&<SyncDot syncing={syncing}/>}</button>)})}
+    {!adding?<button onClick={()=>setAdding(true)} style={{width:34,height:34,borderRadius:"50%",background:"#1a1a1a",border:"1px dashed #555",color:"#666",fontSize:18,cursor:"pointer",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center"}}>＋</button>:<div style={{display:"flex",gap:4,flexShrink:0}}><input value={newName} onChange={e=>setNewName(e.target.value)} placeholder="名前" autoFocus onKeyDown={e=>e.key==="Enter"&&handleAdd()} style={{width:80,padding:"6px 10px",background:"#2a2a2a",border:"1px solid #555",borderRadius:8,color:"#fff",fontSize:13,outline:"none"}}/><button onClick={handleAdd} style={{padding:"6px 10px",background:"#444",border:"none",borderRadius:8,color:"#ddd",fontSize:12,fontWeight:700,cursor:"pointer"}}>追加</button><button onClick={()=>{setAdding(false);setNewName("")}} style={{padding:"6px 8px",background:"none",border:"none",color:"#888",fontSize:14,cursor:"pointer"}}>✕</button></div>}
+  </div></div>);
+}
+
+/* ── Session Detail ── */
+function SessionDetail({dateStr,menus,comments,onBack,onGoToMenu}){
+  const dayData=[];for(const[mn,exs]of Object.entries(menus))for(const ex of exs){const rec=ex.records?.find(r=>r.date===dateStr);if(!rec||!rec.sets?.some(s=>(parseFloat(s.kg)||0)>0))continue;dayData.push({mn,ex,rec})}
+  const totalVol=dayData.reduce((t,{rec})=>t+rec.sets.reduce((s,set)=>s+(parseFloat(set.kg)||0)*(parseFloat(set.reps)||0),0),0);
+  const menuNames=[...new Set(dayData.map(d=>d.mn))];const bodies=[...new Set(dayData.map(d=>d.ex.body))];
+  const grouped={};for(const d of dayData){if(!grouped[d.mn])grouped[d.mn]=[];grouped[d.mn].push(d)}
+  const bestSet=(rec)=>{let best=null,bv=0;for(const s of rec.sets){const v=(parseFloat(s.kg)||0)*(parseFloat(s.reps)||0);if(v>bv){bv=v;best=s}}return best};
+  return(<div style={{padding:"0 0 16px",minHeight:"calc(100vh - 140px)"}}>
+    <div style={{padding:"12px 16px",display:"flex",alignItems:"center",gap:12,borderBottom:"1px solid #222"}}><button onClick={onBack} style={{background:"#2a2a2a",border:"1px solid #333",borderRadius:10,padding:"6px 12px",color:"#aaa",fontSize:16,cursor:"pointer"}}>‹ 戻る</button><div style={{fontSize:20,fontWeight:900,color:"#fff"}}>📅 {dateStr}</div></div>
+    <div style={{padding:"12px 14px"}}>
+      <div style={{display:"flex",gap:8,marginBottom:14}}><div style={{flex:1,background:"#1a1a1a",borderRadius:14,padding:"14px",border:"1px solid #2a2a2a"}}><div style={{fontSize:11,color:"#888",marginBottom:4}}>総ボリューム</div><div style={{fontSize:26,fontWeight:900,color:totalVol>0?"#FFD700":"#444"}}>{totalVol>0?totalVol.toLocaleString():"—"}</div></div><div style={{flex:1,background:"#1a1a1a",borderRadius:14,padding:"14px",border:"1px solid #2a2a2a"}}><div style={{fontSize:11,color:"#888",marginBottom:4}}>種目数</div><div style={{fontSize:26,fontWeight:900,color:"#fff"}}>{dayData.length}<span style={{fontSize:13,color:"#666"}}> 種目</span></div></div></div>
+      {bodies.length>0&&<div style={{display:"flex",gap:6,marginBottom:16,flexWrap:"wrap"}}>{bodies.map(bp=>{const c=BODY_COLORS[bp];return(<span key={bp} style={{display:"inline-flex",alignItems:"center",gap:5,padding:"5px 12px",borderRadius:10,background:`${c.accent}15`,border:`1px solid ${c.accent}30`}}><span style={{width:9,height:9,borderRadius:"50%",background:c.dot}}/><span style={{fontSize:13,fontWeight:700,color:c.accent}}>{bp}</span></span>)})}</div>}
+      {menuNames.length>0&&<div style={{display:"flex",gap:8,marginBottom:16}}>{menuNames.map(mn=><button key={mn} onClick={()=>onGoToMenu(mn,dateStr)} style={{flex:1,padding:"10px",background:"#2a2a2a",border:"1px solid #444",borderRadius:12,color:"#ddd",fontSize:14,fontWeight:600,cursor:"pointer"}}>{MENU_EMOJI[mn]} {mn}を編集</button>)}</div>}
+      {dayData.length===0?<div style={{padding:40,textAlign:"center",color:"#666",fontSize:15}}>この日の記録はありません</div>:Object.entries(grouped).map(([mn,items])=>(<div key={mn} style={{marginBottom:16}}>
+        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}><span style={{fontSize:18}}>{MENU_EMOJI[mn]}</span><span style={{fontSize:15,fontWeight:800,color:"#ccc"}}>{mn}</span><span style={{fontSize:12,color:"#666"}}>{items.length}種目</span></div>
+        {items.map(({ex,rec},i)=>{const c=BODY_COLORS[ex.body];const exVol=rec.sets.reduce((s,set)=>s+(parseFloat(set.kg)||0)*(parseFloat(set.reps)||0),0);const best=bestSet(rec);return(<div key={i} style={{background:"#1a1a1a",borderRadius:14,marginBottom:8,overflow:"hidden",border:`1px solid ${c.border}30`}}><div style={{padding:"12px 14px 10px",background:`linear-gradient(135deg,${c.bg}18,${c.bg}08)`,borderBottom:`1px solid ${c.border}20`}}><div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}><div style={{display:"flex",alignItems:"center",gap:8}}><span style={{padding:"2px 8px",borderRadius:6,background:`${c.accent}25`,color:c.accent,fontSize:11,fontWeight:700}}>{ex.body}</span><span style={{fontSize:15,fontWeight:700,color:"#eee"}}>{ex.name}</span></div><span style={{fontSize:14,fontWeight:800,color:"#FFD700"}}>{exVol>0?exVol.toLocaleString():""}</span></div>{best&&<div style={{marginTop:6,fontSize:12,color:"#888"}}>🏆 ベスト: <span style={{color:"#ddd",fontWeight:700}}>{best.kg}kg × {best.reps}</span></div>}</div><div style={{padding:"8px 14px 12px"}}>{rec.sets.map((s,si)=>{const sv=(parseFloat(s.kg)||0)*(parseFloat(s.reps)||0);const isBest=best&&s.kg===best.kg&&s.reps===best.reps;return(<div key={si} style={{display:"flex",alignItems:"center",gap:10,padding:"7px 0",borderBottom:si<rec.sets.length-1?"1px solid #2a2a2a":"none"}}><span style={{width:24,height:24,display:"flex",alignItems:"center",justifyContent:"center",borderRadius:"50%",background:isBest?`${c.accent}30`:"#222",color:isBest?c.accent:"#888",fontSize:11,fontWeight:700}}>{si+1}</span><span style={{fontSize:15,fontWeight:600,color:"#ddd",minWidth:60}}>{s.kg||"—"}<span style={{fontSize:11,color:"#888"}}> kg</span></span><span style={{color:"#444",fontSize:14}}>×</span><span style={{fontSize:15,fontWeight:600,color:"#ddd",minWidth:30}}>{s.reps||"—"}<span style={{fontSize:11,color:"#888"}}> rep</span></span><span style={{marginLeft:"auto",fontSize:13,fontWeight:700,color:sv>0?"#FFD700":"#333"}}>{sv>0?sv.toLocaleString():"—"}</span></div>)})}</div></div>)})}
+        {(()=>{const key=`${dateStr}_${mn}`;const cmts=comments[key];if(!cmts?.length)return null;return(<div style={{background:"#1a2a1a",borderRadius:12,padding:"12px 14px",marginBottom:8,border:"1px solid #2a4a2a"}}><div style={{fontSize:12,fontWeight:700,color:"#4FA06A",marginBottom:8}}>💬 コメント</div>{cmts.map((c,ci)=>(<div key={ci} style={{marginBottom:ci<cmts.length-1?8:0}}><div style={{fontSize:12,fontWeight:700,color:"#8BC88B"}}>{c.author||"匿名"}</div><div style={{fontSize:14,color:"#ccc",lineHeight:1.5,marginTop:2}}>{c.text}</div></div>))}</div>)})()}
+      </div>))}
+    </div>
+  </div>);
+}
+
+/* ── Home Screen ── */
+function HomeScreen({menus,onGoToMenu,onSelectDay,onNewSession,currentUser}){
+  const now=new Date();const[vY,setVY]=useState(now.getFullYear());const[vM,setVM]=useState(now.getMonth());
+  const cells=useMemo(()=>getMonthDays(vY,vM),[vY,vM]);
+  const tMap=useMemo(()=>buildTrainingMap(menus,vY,vM),[menus,vY,vM]);
+  const todayDay=now.getFullYear()===vY&&now.getMonth()===vM?now.getDate():null;
+  const prev=()=>{if(vM===0){setVY(vY-1);setVM(11)}else setVM(vM-1)};const next=()=>{if(vM===11){setVY(vY+1);setVM(0)}else setVM(vM+1)};
+  const dates=Object.keys(tMap);const trainDays=dates.length;
+  const monthVol=dates.reduce((t,d)=>t+getDateVol(menus,d),0);
+  const bodyFreq={};for(const d of dates)for(const b of tMap[d].bodies)bodyFreq[b]=(bodyFreq[b]||0)+1;
+  const allDates=[];for(const exs of Object.values(menus))for(const ex of exs){if(!ex.records)continue;for(const rec of ex.records)if(rec.sets?.some(s=>(parseFloat(s.kg)||0)>0)&&!allDates.includes(rec.date))allDates.push(rec.date)}
+  allDates.sort((a,b)=>{const[am,ad]=a.split("/").map(Number);const[bm,bd]=b.split("/").map(Number);return bm-am||bd-ad});
+  const recent=allDates.slice(-5).reverse();
+  return(<div style={{padding:"0 12px 16px"}}>
+    <div style={{padding:"12px 4px 8px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+      <div style={{fontSize:22,fontWeight:900}}>🏋️ ワークアウト</div>
+      <a href={`/api/export/${currentUser}`} download style={{padding:"6px 12px",background:"#2a2a2a",border:"1px solid #444",borderRadius:8,color:"#aaa",fontSize:11,fontWeight:700,textDecoration:"none",display:"flex",alignItems:"center",gap:4}}>📤 CSV出力</a>
+    </div>
+    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"8px 0 12px"}}><button onClick={prev} style={{background:"#2a2a2a",border:"1px solid #333",borderRadius:10,color:"#aaa",fontSize:18,cursor:"pointer",padding:"6px 14px"}}>‹</button><span style={{fontSize:17,fontWeight:800,color:"#eee"}}>{vY}年 {vM+1}月</span><button onClick={next} style={{background:"#2a2a2a",border:"1px solid #333",borderRadius:10,color:"#aaa",fontSize:18,cursor:"pointer",padding:"6px 14px"}}>›</button></div>
+    <div style={{display:"flex",gap:8,marginBottom:12}}><div style={{flex:1,background:"#1a1a1a",borderRadius:14,padding:"12px 14px",border:"1px solid #2a2a2a"}}><div style={{fontSize:11,color:"#888",marginBottom:4}}>トレーニング日数</div><div style={{fontSize:24,fontWeight:900,color:trainDays>0?"#fff":"#444"}}>{trainDays}<span style={{fontSize:13,color:"#666",fontWeight:400}}> 日</span></div></div><div style={{flex:1,background:"#1a1a1a",borderRadius:14,padding:"12px 14px",border:"1px solid #2a2a2a"}}><div style={{fontSize:11,color:"#888",marginBottom:4}}>月間ボリューム</div><div style={{fontSize:24,fontWeight:900,color:monthVol>0?"#FFD700":"#444"}}>{monthVol>0?monthVol.toLocaleString():"—"}</div></div></div>
+    {trainDays>0&&<div style={{display:"flex",gap:6,marginBottom:14,flexWrap:"wrap"}}>{BODY_PARTS.filter(bp=>bodyFreq[bp]).map(bp=>(<span key={bp} style={{display:"inline-flex",alignItems:"center",gap:4,padding:"4px 10px",borderRadius:8,background:`${BODY_COLORS[bp].accent}18`,border:`1px solid ${BODY_COLORS[bp].accent}30`}}><span style={{width:8,height:8,borderRadius:"50%",background:BODY_COLORS[bp].dot}}/><span style={{fontSize:12,fontWeight:600,color:BODY_COLORS[bp].accent}}>{bp}</span><span style={{fontSize:12,fontWeight:800,color:BODY_COLORS[bp].text}}>×{bodyFreq[bp]}</span></span>))}</div>}
+    <div style={{background:"#1a1a1a",borderRadius:16,overflow:"hidden",border:"1px solid #2a2a2a"}}><div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)"}}>{WEEKDAYS.map((wd,i)=><div key={wd} style={{padding:"10px 0",textAlign:"center",fontSize:12,fontWeight:700,color:i===0?"#D46A6A":i===6?"#5B7DB8":"#666",background:"#222"}}>{wd}</div>)}</div><div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)"}}>{cells.map((day,i)=>{if(day===null)return<div key={`e${i}`} style={{padding:6}}/>;const ds=`${vM+1}/${day}`;const info=tMap[ds];const isToday=day===todayDay;const dow=i%7;return(<button key={i} onClick={()=>{info?onSelectDay(ds):onNewSession(ds)}} style={{padding:"6px 2px 8px",background:info?"#ffffff08":"none",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3,borderTop:"1px solid #2a2a2a",transition:"background .15s"}}><span style={{width:28,height:28,display:"flex",alignItems:"center",justifyContent:"center",borderRadius:"50%",background:isToday?"#FFD700":"transparent",color:isToday?"#111":dow===0?"#D46A6A":dow===6?"#5B7DB8":"#ccc",fontSize:13,fontWeight:isToday?800:info?700:400}}>{day}</span><div style={{display:"flex",gap:3,minHeight:8,justifyContent:"center",flexWrap:"wrap"}}>{info?[...info.bodies].map(bp=><span key={bp} style={{width:7,height:7,borderRadius:"50%",background:BODY_COLORS[bp]?.dot||"#888"}}/>):<span style={{width:7,height:7}}/>}</div></button>)})}</div></div>
+    <div style={{display:"flex",gap:10,justifyContent:"center",marginTop:12,flexWrap:"wrap"}}>{BODY_PARTS.map(bp=><span key={bp} style={{display:"inline-flex",alignItems:"center",gap:4,fontSize:11,color:"#888"}}><span style={{width:7,height:7,borderRadius:"50%",background:BODY_COLORS[bp].dot}}/>{bp}</span>)}</div>
+    {recent.length>0&&<div style={{marginTop:20}}><div style={{fontSize:14,fontWeight:800,color:"#ccc",marginBottom:10,paddingLeft:4}}>📝 最近のセッション</div>{recent.map(ds=>{const bodies=new Set();const ms=new Set();let vol=0;for(const[mn,exs]of Object.entries(menus))for(const ex of exs){const r=ex.records?.find(r=>r.date===ds);if(!r||!r.sets?.some(s=>(parseFloat(s.kg)||0)>0))continue;bodies.add(ex.body);ms.add(mn);for(const s of r.sets)vol+=(parseFloat(s.kg)||0)*(parseFloat(s.reps)||0)}return(<button key={ds} onClick={()=>onSelectDay(ds)} style={{display:"flex",alignItems:"center",width:"100%",padding:"12px 14px",background:"#1a1a1a",border:"1px solid #2a2a2a",borderRadius:12,marginBottom:8,cursor:"pointer",gap:12}}><div style={{fontSize:16,fontWeight:800,color:"#ddd",minWidth:48}}>{ds}</div><div style={{display:"flex",gap:4,flex:1,flexWrap:"wrap"}}>{[...bodies].map(bp=><span key={bp} style={{width:10,height:10,borderRadius:"50%",background:BODY_COLORS[bp]?.dot}}/>)}{[...ms].map(mn=><span key={mn} style={{fontSize:11,color:"#888",background:"#2a2a2a",padding:"1px 6px",borderRadius:4}}>{mn}</span>)}</div><div style={{fontSize:14,fontWeight:800,color:"#FFD700",whiteSpace:"nowrap"}}>{vol>0?vol.toLocaleString():""}</div></button>)})}</div>}
+  </div>);
+}
+
+/* ── Menu Screen ── */
+function MenuScreen({menus,tab,sessionDate,setSessionDate,onSave,comments,onSaveComment}){
+  const[draft,setDraft]=useState(()=>DC(menus[tab]||[]));const[dirty,setDirty]=useState(false);const[picker,setPicker]=useState(null);const[showHist,setShowHist]=useState(null);const[confirm,setConfirm]=useState(null);const[calOpen,setCalOpen]=useState(false);const[saved,setSaved]=useState(false);
+  const commentKey=`${sessionDate}_${tab}`;const existingComments=comments[commentKey]||[];const[cmtAuthor,setCmtAuthor]=useState("");const[cmtText,setCmtText]=useState("");
+  useEffect(()=>{setDraft(DC(menus[tab]||[]));setDirty(false);setSaved(false)},[tab,sessionDate,menus]);
+  const exercises=draft;
+  const updateDraft=(fn)=>{setDraft(prev=>{const next=DC(prev);fn(next);return next});setDirty(true);setSaved(false)};
+  const updateEx=(i,f,v)=>updateDraft(d=>{d[i][f]=v});
+  const addExercise=(bp,name)=>updateDraft(d=>{d.push({body:bp,name,alt:"",sets:2,repRange:"8～10",records:[]})});
+  const removeExercise=(ei)=>{updateDraft(d=>{d.splice(ei,1)});setConfirm(null)};
+  const addSet=(ei)=>updateDraft(d=>{d[ei].sets+=1;(d[ei].records||[]).forEach(r=>r.sets.push({kg:"",reps:""}))});
+  const removeSet=(ei)=>{updateDraft(d=>{if(d[ei].sets<=1)return;d[ei].sets-=1;(d[ei].records||[]).forEach(r=>{r.sets=r.sets.slice(0,d[ei].sets)})});setConfirm(null)};
+  const updateSet=(ei,si,f,v)=>updateDraft(d=>{const ex=d[ei];let recs=ex.records||[];let dr=recs.find(r=>r.date===sessionDate);if(!dr){dr={date:sessionDate,sets:Array.from({length:ex.sets},()=>({kg:"",reps:""}))};recs.push(dr);ex.records=recs}while(dr.sets.length<ex.sets)dr.sets.push({kg:"",reps:""});dr.sets[si][f]=v});
+  const getSD=(ex,si)=>ex.records?.find(r=>r.date===sessionDate)?.sets?.[si]||{kg:"",reps:""};
+  const getPrev=(ex)=>{if(!ex.records?.length)return null;const s=ex.records.filter(r=>r.date!==sessionDate).sort((a,b)=>{const[am,ad]=a.date.split("/").map(Number);const[bm,bd]=b.date.split("/").map(Number);return bm-am||bd-ad});return s.length?s[s.length-1]:null};
+  const totalVol=exercises.reduce((t,ex)=>{const r=ex.records?.find(r=>r.date===sessionDate);if(!r)return t;return t+r.sets.reduce((s,set)=>s+(parseFloat(set.kg)||0)*(parseFloat(set.reps)||0),0)},0);
+  const handleSave=()=>{onSave(tab,draft);setSaved(true);setDirty(false)};
+  const handleAddComment=()=>{if(!cmtText.trim())return;onSaveComment(commentKey,cmtAuthor.trim()||"匿名",cmtText.trim());setCmtText("")};
+  return(<>
+    <div style={{position:"sticky",top:0,zIndex:100,background:"#111",borderBottom:"1px solid #222"}}><div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"12px 16px 8px"}}><div style={{fontSize:20,fontWeight:900}}>{MENU_EMOJI[tab]} {tab}</div><button onClick={()=>setCalOpen(true)} style={{padding:"6px 12px",background:"#2a2a2a",border:"1px solid #444",borderRadius:8,color:"#fff",fontSize:14,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}>📅 {sessionDate}</button></div><div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"0 16px 10px"}}><span style={{fontSize:12,color:"#888"}}>セッション総Vol</span><span style={{fontSize:18,fontWeight:900,color:totalVol>0?"#FFD700":"#444"}}>{totalVol>0?totalVol.toLocaleString():"—"}</span></div></div>
+    <div style={{padding:"8px 10px"}}>
+      {exercises.map((ex,ei)=>{const c=BODY_COLORS[ex.body]||BODY_COLORS["胸"];const prev=getPrev(ex);return(<div key={ei} style={{background:"#1a1a1a",borderRadius:16,marginBottom:10,overflow:"hidden",border:`1px solid ${c.border}30`}}>
+        <div style={{background:`linear-gradient(135deg,${c.bg}18,${c.bg}08)`,padding:"12px 14px 10px",borderBottom:`1px solid ${c.border}25`}}><div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:8}}><div style={{flex:1}}><div style={{display:"flex",alignItems:"center",gap:6,marginBottom:4}}><span style={{padding:"2px 8px",borderRadius:6,background:`${c.accent}25`,color:c.accent,fontSize:11,fontWeight:700}}>{ex.body}</span><span style={{fontSize:11,color:"#666"}}>{ex.sets}セット・{ex.repRange}Rep</span></div><button onClick={()=>setPicker({ei,field:"name"})} style={{background:"none",border:"none",color:"#eee",fontSize:15,fontWeight:700,cursor:"pointer",padding:0,textAlign:"left"}}>{ex.name} <span style={{color:"#555",fontSize:12}}>▼</span></button>{ex.alt?<button onClick={()=>setPicker({ei,field:"alt"})} style={{display:"flex",alignItems:"center",gap:4,marginTop:4,background:"none",border:"none",cursor:"pointer",padding:0}}><span style={{fontSize:10,color:"#888",background:"#2a2a2a",padding:"1px 6px",borderRadius:4}}>🏠自宅</span><span style={{fontSize:12,color:"#999"}}>{ex.alt} ▼</span></button>:<button onClick={()=>setPicker({ei,field:"alt"})} style={{background:"none",border:"none",cursor:"pointer",padding:"4px 0 0",color:"#555",fontSize:11}}>＋ 自宅代替を追加</button>}</div><div style={{display:"flex",flexDirection:"column",gap:4,alignItems:"flex-end"}}>{prev&&<button onClick={()=>setShowHist(showHist===ei?null:ei)} style={{background:"#2a2a2a",border:"1px solid #333",borderRadius:8,padding:"4px 8px",cursor:"pointer",color:"#888",fontSize:10,whiteSpace:"nowrap"}}>前回 📊</button>}<button onClick={()=>setConfirm({type:"exercise",ei})} style={{background:"none",border:"none",cursor:"pointer",padding:"2px 4px",color:"#664444",fontSize:12}}>🗑</button></div></div>{showHist===ei&&prev&&<div style={{marginTop:8,padding:"8px 10px",background:"#22222280",borderRadius:8,fontSize:12,color:"#888"}}><span style={{fontWeight:600}}>{prev.date}</span>{prev.sets.map((s,i)=><span key={i} style={{marginLeft:10}}>S{i+1}: {s.kg||"—"}kg×{s.reps||"—"}</span>)}</div>}</div>
+        <div style={{padding:"10px 14px 10px"}}>{Array.from({length:ex.sets},(_,si)=>{const sd=getSD(ex,si);const vol=(parseFloat(sd.kg)||0)*(parseFloat(sd.reps)||0);return(<div key={si} style={{display:"flex",alignItems:"center",gap:8,marginBottom:8,padding:"6px 0"}}><span style={{width:26,height:26,display:"flex",alignItems:"center",justifyContent:"center",borderRadius:"50%",background:`${c.accent}20`,color:c.accent,fontSize:12,fontWeight:700,flexShrink:0}}>{si+1}</span><NumInput value={sd.kg} onChange={v=>updateSet(ei,si,"kg",v)} unit="kg" step={2.5} color="#eee"/><span style={{color:"#444",fontSize:16}}>×</span><NumInput value={sd.reps} onChange={v=>updateSet(ei,si,"reps",v)} unit="rep" step={1} color="#eee"/><div style={{marginLeft:"auto",fontSize:13,fontWeight:700,color:vol>0?"#FFD700":"#333",minWidth:48,textAlign:"right"}}>{vol>0?vol.toLocaleString():"—"}</div></div>)})}
+          <div style={{display:"flex",justifyContent:"center",gap:12,marginTop:4,paddingTop:6,borderTop:"1px solid #2a2a2a"}}><button onClick={()=>addSet(ei)} style={{padding:"6px 14px",background:"#222",border:"1px solid #333",borderRadius:8,color:"#888",fontSize:12,fontWeight:600,cursor:"pointer"}}>＋ セット追加</button>{ex.sets>1&&<button onClick={()=>setConfirm({type:"set",ei})} style={{padding:"6px 14px",background:"#222",border:"1px solid #333",borderRadius:8,color:"#774444",fontSize:12,fontWeight:600,cursor:"pointer"}}>− セット削除</button>}</div></div></div>)})}
+      <button onClick={()=>setPicker({mode:"add"})} style={{display:"flex",alignItems:"center",justifyContent:"center",gap:8,width:"100%",padding:"16px",marginTop:4,marginBottom:8,background:"#1a1a1a",border:"2px dashed #333",borderRadius:16,color:"#888",fontSize:15,fontWeight:700,cursor:"pointer"}}>＋ 種目を追加</button>
+      {/* Comment Section */}
+      <div style={{background:"#1a1a1a",borderRadius:16,padding:"16px 14px",marginBottom:8,border:"1px solid #2a4a2a"}}>
+        <div style={{fontSize:14,fontWeight:800,color:"#4FA06A",marginBottom:12}}>💬 コメント（{sessionDate} / {tab}）</div>
+        {existingComments.length>0&&<div style={{marginBottom:12}}>{existingComments.map((c,i)=>(<div key={i} style={{padding:"10px 12px",background:"#222",borderRadius:10,marginBottom:6,border:"1px solid #333"}}><div style={{display:"flex",alignItems:"center",gap:6,marginBottom:4}}><span style={{width:20,height:20,borderRadius:"50%",background:"#4FA06A",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:9,fontWeight:800}}>{(c.author||"匿")[0]}</span><span style={{fontSize:13,fontWeight:700,color:"#8BC88B"}}>{c.author||"匿名"}</span>{c.time&&<span style={{fontSize:10,color:"#666"}}>{new Date(c.time).toLocaleString("ja-JP",{month:"numeric",day:"numeric",hour:"2-digit",minute:"2-digit"})}</span>}</div><div style={{fontSize:14,color:"#ccc",lineHeight:1.5}}>{c.text}</div></div>))}</div>}
+        <div style={{display:"flex",gap:6,marginBottom:8}}><input value={cmtAuthor} onChange={e=>setCmtAuthor(e.target.value)} placeholder="名前（例：トレーナー山田）" style={{flex:1,padding:"8px 12px",background:"#222",border:"1px solid #444",borderRadius:8,color:"#fff",fontSize:13,outline:"none"}}/></div>
+        <div style={{display:"flex",gap:6}}><textarea value={cmtText} onChange={e=>setCmtText(e.target.value)} placeholder="コメントを入力…" rows={2} style={{flex:1,padding:"8px 12px",background:"#222",border:"1px solid #444",borderRadius:8,color:"#fff",fontSize:13,outline:"none",lineHeight:1.5}}/><button onClick={handleAddComment} style={{padding:"8px 14px",background:cmtText.trim()?"#4FA06A":"#333",border:"none",borderRadius:8,color:cmtText.trim()?"#fff":"#666",fontSize:13,fontWeight:700,cursor:cmtText.trim()?"pointer":"default",alignSelf:"flex-end"}}>送信</button></div>
+      </div>
+      <div style={{height:70}}/>
+    </div>
+    <div style={{position:"fixed",bottom:62,left:0,right:0,zIndex:99,padding:"0 14px",paddingBottom:"env(safe-area-inset-bottom)"}}><button onClick={handleSave} disabled={!dirty&&!saved} style={{width:"100%",padding:"14px",borderRadius:14,border:"none",fontSize:16,fontWeight:800,cursor:dirty?"pointer":"default",background:saved?"#2E6E3E":dirty?"#FFD700":"#333",color:saved?"#fff":dirty?"#111":"#666",transition:"all .2s",boxShadow:dirty?"0 4px 20px rgba(255,215,0,.3)":"none"}}>{saved?"✓ 保存しました":dirty?"💾 記録を保存":"変更なし"}</button></div>
+    <ExercisePicker open={picker!==null} onClose={()=>setPicker(null)} currentBody={picker&&picker.ei!=null?exercises[picker.ei]?.body:null} onSelect={(bp,exName)=>{if(picker.mode==="add")addExercise(bp,exName);else if(picker.field==="name"){updateEx(picker.ei,"name",exName);updateEx(picker.ei,"body",bp)}else updateEx(picker.ei,"alt",exName)}}/>
+    <ConfirmDialog open={confirm!==null} message={confirm?.type==="exercise"?`「${exercises[confirm?.ei]?.name}」を削除しますか？\n記録データも消去されます。`:`最後のセット（S${exercises[confirm?.ei]?.sets}）を削除しますか？`} onConfirm={()=>{if(confirm.type==="exercise")removeExercise(confirm.ei);else removeSet(confirm.ei)}} onCancel={()=>setConfirm(null)}/>
+    <CalendarPicker open={calOpen} onClose={()=>setCalOpen(false)} currentDate={sessionDate} onSelect={ds=>setSessionDate(ds)}/>
+  </>);
+}
+
+/* ── App ── */
+function App(){
+  const[users,setUsers]=useState(null);const[currentUser,setCurrentUser]=useState(null);
+  const[menus,setMenus]=useState(null);const[comments,setComments]=useState({});
+  const[activeTab,setActiveTab]=useState("Home");const[sessionDate,setSessionDate]=useState(todayStr());
+  const[selDay,setSelDay]=useState(null);const[menuPickerDate,setMenuPickerDate]=useState(null);
+  const[syncing,setSyncing]=useState(false);const[toast,setToast]=useState(null);
+  const dirtyRef=useRef(false); // track if user is actively editing
+
+  // Load users from server
+  useEffect(()=>{(async()=>{const r=await api.getUsers();if(r){setUsers(r.users||DEFAULT_USERS);setCurrentUser(r.current||r.users?.[0]||DEFAULT_USERS[0])}else{setUsers([...DEFAULT_USERS]);setCurrentUser(DEFAULT_USERS[0])}})()},[]);
+
+  // Load menus + comments from server when user changes
+  useEffect(()=>{if(!currentUser)return;setMenus(null);(async()=>{const r=await api.sync(currentUser);if(r){setMenus(r.menus||DC(DEFAULT_MENUS));setComments(r.comments||{});if(!r.menus){await api.saveMenus(currentUser,DC(DEFAULT_MENUS))}}else{setMenus(DC(DEFAULT_MENUS));setComments({})}})()},[currentUser]);
+
+  // Poll server every 5 seconds for updates (from trainer/other users)
+  useEffect(()=>{if(!currentUser||!menus)return;
+    const iv=setInterval(async()=>{
+      if(dirtyRef.current)return; // don't overwrite if user is editing
+      setSyncing(true);
+      const r=await api.sync(currentUser);
+      if(r){
+        if(r.menus)setMenus(r.menus);
+        if(r.comments)setComments(r.comments);
+      }
+      setSyncing(false);
+    },5000);
+    return()=>clearInterval(iv);
+  },[currentUser,menus]);
+
+  const handleMenuSave=useCallback(async(tab,draftExercises)=>{
+    dirtyRef.current=true;
+    const ok=await api.saveMenuTab(currentUser,tab,DC(draftExercises));
+    if(ok){const r=await api.sync(currentUser);if(r){setMenus(r.menus);setComments(r.comments)}}
+    dirtyRef.current=false;
+  },[currentUser]);
+
+  const handleSaveComment=useCallback(async(key,author,text)=>{
+    await api.addComment(currentUser,key,author,text);
+    const r=await api.getComments(currentUser);if(r)setComments(r.comments||{});
+  },[currentUser]);
+
+  const switchUser=(u)=>{setCurrentUser(u);setActiveTab("Home");setSelDay(null)};
+  const addUser=async(name)=>{await api.addUser(name);setUsers(prev=>[...prev,name]);setCurrentUser(name);setActiveTab("Home");setSelDay(null)};
+  const goToMenu=(mn,date)=>{setActiveTab(mn);setSessionDate(date);setSelDay(null)};
+
+  if(!users||!currentUser||!menus)return<div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100vh",background:"#111",color:"#fff"}}><div style={{fontSize:18,opacity:0.5}}>サーバーに接続中…</div></div>;
+
+  const allTabs=["Home",...MENU_TABS];const userIdx=users.indexOf(currentUser);const userColor=USER_COLORS[userIdx%USER_COLORS.length];
+  return(<div style={{background:"#111",minHeight:"100vh",color:"#eee",fontFamily:"'Noto Sans JP',-apple-system,sans-serif",paddingBottom:80}}>
+    <UserBar users={users} currentUser={currentUser} onSwitch={switchUser} onAdd={addUser} syncing={syncing}/>
+    {selDay?<SessionDetail dateStr={selDay} menus={menus} comments={comments} onBack={()=>setSelDay(null)} onGoToMenu={goToMenu}/>
+      :activeTab==="Home"?<HomeScreen menus={menus} onGoToMenu={goToMenu} onSelectDay={ds=>setSelDay(ds)} onNewSession={ds=>setMenuPickerDate(ds)} currentUser={currentUser}/>
+      :<MenuScreen menus={menus} tab={activeTab} sessionDate={sessionDate} setSessionDate={setSessionDate} onSave={handleMenuSave} comments={comments} onSaveComment={handleSaveComment}/>}
+    <MenuPickerModal open={!!menuPickerDate} dateStr={menuPickerDate} onClose={()=>setMenuPickerDate(null)} onSelect={mn=>{setSessionDate(menuPickerDate);setActiveTab(mn);setMenuPickerDate(null)}}/>
+    <div style={{position:"fixed",bottom:0,left:0,right:0,zIndex:100,background:"#1a1a1a",borderTop:"1px solid #333",display:"flex",paddingBottom:"env(safe-area-inset-bottom)"}}>{allTabs.map(t=>(<button key={t} onClick={()=>{setActiveTab(t);setSelDay(null)}} style={{flex:1,padding:"8px 0 6px",background:"none",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:1,opacity:activeTab===t?1:0.35,transition:"opacity .15s"}}><span style={{fontSize:17}}>{t==="Home"?"📅":MENU_EMOJI[t]}</span><span style={{fontSize:10,fontWeight:activeTab===t?800:500,color:activeTab===t?"#fff":"#888"}}>{t==="Home"?"ホーム":t}</span>{activeTab===t&&<div style={{width:16,height:2.5,borderRadius:2,background:t==="Home"?userColor:"#FFD700",marginTop:1}}/>}</button>))}</div>
+  </div>);
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>

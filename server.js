@@ -104,7 +104,41 @@ app.get("/api/sync/:user", (req, res) => {
   const user = req.params.user.toUpperCase();
   const menus = readJSON(`menus_${user}.json`, null);
   const comments = readJSON(`comments_${user}.json`, {});
-  res.json({ menus, comments, serverTime: Date.now() });
+  const measurements = readJSON(`measurements_${user}.json`, []);
+  res.json({ menus, comments, measurements, serverTime: Date.now() });
+});
+
+/* ── API: Body Measurements ── */
+// GET /api/measurements/:user
+app.get("/api/measurements/:user", (req, res) => {
+  const user = req.params.user.toUpperCase();
+  const data = readJSON(`measurements_${user}.json`, []);
+  res.json({ measurements: data });
+});
+
+// POST /api/measurements/:user  { date, weight, waist, chest, arm, thigh, hip, memo }
+app.post("/api/measurements/:user", (req, res) => {
+  const user = req.params.user.toUpperCase();
+  const m = req.body;
+  if (!m.date) return res.status(400).json({ error: "date required" });
+  const data = readJSON(`measurements_${user}.json`, []);
+  // Replace if same date exists, otherwise add
+  const idx = data.findIndex(d => d.date === m.date);
+  const entry = { date: m.date, weight: m.weight || "", waist: m.waist || "", chest: m.chest || "", arm: m.arm || "", thigh: m.thigh || "", hip: m.hip || "", memo: m.memo || "", updatedAt: new Date().toISOString() };
+  if (idx >= 0) data[idx] = entry; else data.push(entry);
+  data.sort((a, b) => new Date(b.date) - new Date(a.date));
+  writeJSON(`measurements_${user}.json`, data);
+  res.json({ ok: true, measurements: data });
+});
+
+// DELETE /api/measurements/:user/:date
+app.delete("/api/measurements/:user/:date", (req, res) => {
+  const user = req.params.user.toUpperCase();
+  const date = decodeURIComponent(req.params.date);
+  let data = readJSON(`measurements_${user}.json`, []);
+  data = data.filter(d => d.date !== date);
+  writeJSON(`measurements_${user}.json`, data);
+  res.json({ ok: true, measurements: data });
 });
 
 /* ── API: CSV Export ── */

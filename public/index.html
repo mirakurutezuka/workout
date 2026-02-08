@@ -292,13 +292,13 @@ function MeasurementScreen({measurements,onSave,onDelete,onDirtyChange}){
   };
 
   return(
-    <div style={{padding:"0 0 16px",minHeight:"calc(100vh - 140px)"}}>
+    <div style={{padding:"0 0 16px",minHeight:"calc(100vh - 140px)",overflowX:"hidden"}}>
       <div style={{position:"sticky",top:0,zIndex:100,background:"#111",borderBottom:"1px solid #222",padding:"12px 16px"}}>
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
           <div style={{fontSize:20,fontWeight:900}}>📏 身体測定ログ</div>
         </div>
         <input type="date" value={date} onChange={e=>selectDate(e.target.value)}
-          style={{width:"100%",padding:"10px 14px",background:"#2a2a2a",border:"1px solid #444",borderRadius:10,color:"#fff",fontSize:15,outline:"none",colorScheme:"dark",boxSizing:"border-box"}}/>
+          style={{display:"block",width:"100%",maxWidth:"100%",padding:"10px 14px",background:"#2a2a2a",border:"1px solid #444",borderRadius:10,color:"#fff",fontSize:16,outline:"none",colorScheme:"dark",boxSizing:"border-box",WebkitAppearance:"none"}}/>
       </div>
 
       <div style={{padding:"12px 12px 8px"}}>
